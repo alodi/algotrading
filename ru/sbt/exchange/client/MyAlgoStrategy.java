@@ -31,53 +31,51 @@ public class MyAlgoStrategy implements AlgoStrategy {
         if (event.getExchangeEventType() == ORDER_NEW) {
             Order order = event.getOrder();
             Instrument instrument = order.getInstrument();
-            double money = broker.getMyPortfolio().getMoney() + broker.getMyPortfolio().getAcceptedOverdraft();
-            int quantityToBuy = (int) Math.min(money / order.getPrice(), order.getQuantity());
-            Integer quantityMyBonds = broker.getMyPortfolio().getCountByInstrument().get(instrument);
-            int quantityToSell = Math.min(quantityMyBonds, order.getQuantity());
 
-            if (order.getDirection() == SELL && order.getPrice() < priceBond(broker, (Bond) instrument, BUY)) {
-                Order BuyOrder = order.opposite().withQuantity((int) (quantityToBuy * partOfBonds));
-                broker.addOrder(BuyOrder);
+            if (order.getDirection() == SELL && order.getPrice() < priceOfBond(broker, (Bond) instrument)) {
+                double money = broker.getMyPortfolio().getMoney() + broker.getMyPortfolio().getAcceptedOverdraft();
+                int quantity = (int) Math.min(money / order.getPrice(), order.getQuantity());
+                quantity = (int) (quantity * partOfBonds);
+                Order buyOrder = order.opposite().withQuantity(quantity);
+                broker.addOrder(buyOrder);
             }
 
-            if (order.getDirection() == BUY && order.getPrice() > priceBond(broker, (Bond) instrument, SELL)) {
-                if (order.getPrice() > priceBondInPeriod(broker, (Bond) instrument, SELL)) {
-                    quantityToSell = order.getQuantity();
+            if (order.getDirection() == BUY && order.getPrice() > priceOfBond(broker, (Bond) instrument)) {
+                int quantityOfInstrument = broker.getMyPortfolio().getCountByInstrument().get(instrument);
+                int orderQuantity = order.getQuantity();
+                int quantity = Math.min(quantityOfInstrument, orderQuantity);
+                quantity = (int) (quantity * partOfBonds);
+                Order sellOrder = order.opposite().withQuantity(quantity);
+                broker.addOrder(sellOrder);
+                if (quantityOfInstrument < orderQuantity && order.getPrice() > priceOfShortBond(broker, (Bond) instrument)) {
+                    quantity = orderQuantity - quantityOfInstrument;
+                    quantity = (int) ((quantity) * partOfBonds);
+                    Order shortSellOrder = order.opposite().withQuantity(quantity);
+                    broker.addOrder(shortSellOrder);
                 }
-                Order BuyOrder = order.opposite().withQuantity((int) (quantityToSell * partOfBonds));
-                broker.addOrder(BuyOrder);
             }
         }
     }
 
-    private double priceBond(Broker broker, Bond bond, Direction direction) {
+    private double priceOfBond(Broker broker, Bond bond) {
         double nominal = bond.getNominal();
         double averageCoup = (bond.getCouponInPercents().getMax() + bond.getCouponInPercents().getMin()) * 0.5;
         double rate = broker.getMyPortfolio().getPeriodInterestRate();
-        double percent = broker.getMyPortfolio().getBrokerFeeInPercents();
-        int periods = Math.max(1, bond.getMaturityPeriod() - broker.getPeriodInfo().getCurrentPeriodNumber());
-        double price = nominal * Math.pow((100. + averageCoup) / (100. + rate), periods) * (100. + percent) / 100.;
-        double priceWithPayoff;
-
-        if (direction == SELL) {
-            priceWithPayoff = price * Math.pow((100. + payoffPercent) / 100., periods);
-        } else priceWithPayoff = price * Math.pow((100. - payoffPercent) / 100., periods);
-        return priceWithPayoff;
+        double brokerPercent = broker.getMyPortfolio().getBrokerFeeInPercents();
+        int periods = Math.max(0, broker.getPeriodInfo().getEndPeriodNumber() - broker.getPeriodInfo().getCurrentPeriodNumber());
+        double price = nominal * Math.pow((100. + averageCoup) / (100. + rate), periods) * (100. + brokerPercent) / 100.;
+        return price;
     }
 
-    private double priceBondInPeriod(Broker broker, Bond bond, Direction direction) {
+    private double priceOfShortBond(Broker broker, Bond bond) {
         double nominal = bond.getNominal();
         double averageCoup = (bond.getCouponInPercents().getMax() + bond.getCouponInPercents().getMin()) * 0.5;
         double rate = broker.getMyPortfolio().getPeriodInterestRate();
         double percent = broker.getMyPortfolio().getBrokerFeeInPercents();
-        double price = nominal * (100. + averageCoup) / (100. + rate) * (100. + percent) / 100.;
-        double priceWithPayoff;
-
-        if (direction == SELL) {
-            priceWithPayoff = price * (100. + payoffPercent) / 100.;
-        } else priceWithPayoff = price * (100. - payoffPercent) / 100.;
-        return priceWithPayoff;
+        int periods = 0;
+        if (broker.getPeriodInfo().getCurrentPeriodNumber() == broker.getPeriodInfo().getEndPeriodNumber()) periods = 1;
+        double price = nominal * Math.pow((100. + averageCoup) / (100. + rate) * (100. + percent), periods) / 100.;
+        return price;
     }
 
 }
